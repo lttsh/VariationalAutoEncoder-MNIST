@@ -15,25 +15,30 @@ class VariationalAutoEncoder(object):
             batch_size=100,
             latent_dim=10,
             dim_image=784,
-            hidden_dim=500):
+            hidden_dim=500,
+            saved_path=None):
         self.learning_rate = lr
         self.batch_size = batch_size
         self.latent_dim = latent_dim
         self.dim_image = dim_image
         self.hidden_dim = hidden_dim
-
+        self.saved_path=saved_path
         # Build all graph
-
-        self.x = tf.placeholder(tf.float32, shape=[self.batch_size, self.dim_image])
+        self.x = tf.placeholder(tf.float32, shape=[None, self.dim_image])
         self.buildEncoder()
-        self.latent = self.generate_latent(self.mu, self.sigma)
+        self.latent = self.generate_latent()
         self.reconstruct = self.buildDecoder(self.latent)
         self.loss()
         self.train = tf.train.AdamOptimizer(learning_rate=self.learning_rate)\
             .minimize(self.total_loss)
 
-        self.sess = tf.InteractiveSession()
+        self.sess = tf.Session()
+        self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
+
+        if self.saved_path is not None:
+            self.saver.restore(self.sess, self.saved_path)
+            print("Restored model")
 
     # Build encoder
     # Returns (mu, sigma)
@@ -48,9 +53,9 @@ class VariationalAutoEncoder(object):
         self.mu = z[:, :self.latent_dim]
         self.sigma = tf.exp(z[:, self.latent_dim:])
 
-    def generate_latent(self, mu, sigma):
-        print("Mu and sigma shape", mu.get_shape(), sigma.get_shape())
-        latent =  mu + sigma * tf.random_normal(tf.shape(mu), 0, 1, dtype=tf.float32)
+    def generate_latent(self):
+        print("Mu and sigma shape", self.mu.get_shape(), self.sigma.get_shape())
+        latent =  self.mu + self.sigma * tf.random_normal(tf.shape(self.mu), 0, 1, dtype=tf.float32)
         return latent
 
     # Build decoder
@@ -79,12 +84,23 @@ class VariationalAutoEncoder(object):
             self.sess.run([self.train, self.total_loss, self.likelihood, self.kldiv], feed_dict={self.x: x})
         return total_loss, likelihood, kldiv
 
+    def train_model(self, data, num_epochs=50, batch_size=100):
+        if self.saved_path is  None:
+            num_sample = data.num_examples
+            for epoch in range(num_epochs):
+                for iter in range(num_sample // batch_size):
+                    batch = data.next_batch(batch_size)[0]
+                    losses = self.train_step(batch)
+                print('[Epoch {}] Loss: {}'.format(epoch, losses))
+            self.saved_path = self.saver.save(self.sess, './model')
+            print("Model saved in file: %s" % self.saved_path)
+
     def get_reconstruct(self, x):
         reconstructed = self.sess.run(
             self.reconstruct, feed_dict={self.x:x}
         )
         return reconstructed
 
-    def generate(self, z):
-        bernoulli = tf.distributions.Bernoulli(probs=self.reconstruct).sample(1)
-        return self.sess.run(bernoulli, feed_dict={self.latent: z})
+    def get_generated(self, N):
+        random_latent = np.random.normal(loc=0, scale=1, size=[N, self.latent_dim])
+        return self.sess.run(self.reconstruct, feed_dict={self.latent:random_latent})
