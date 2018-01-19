@@ -28,6 +28,9 @@ for epoch in range(NUM_EPOCH):
 
 
 # Test the trained model: reconstruction
+
+# Visualisation from https://github.com/shaohua0116/VAE-Tensorflow/blob/master/demo.py
+
 batch = mnist.test.next_batch(100)[0]
 x_reconstructed = model.get_reconstruct(batch)
 
