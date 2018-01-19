@@ -10,19 +10,25 @@ def bias_variable(name, shape):
 
 class VariationalAutoEncoder(object):
 
-    def __init__(self, lr=1e-3, bs=100, latent_dim=10, dim_image=784):
+    def __init__(self,
+            lr=1e-3,
+            batch_size=100,
+            latent_dim=10,
+            dim_image=784,
+            hidden_dim=500):
         self.learning_rate = lr
-        self.batch_size = bs
+        self.batch_size = batch_size
         self.latent_dim = latent_dim
         self.dim_image = dim_image
+        self.hidden_dim = hidden_dim
 
         # Build all graph
 
         self.x = tf.placeholder(tf.float32, shape=[self.batch_size, self.dim_image])
-        mu, sigma = self.buildEncoder(50)
-        self.latent = self.generate_latent(mu, sigma)
-        self.reconstruct = self.buildDecoder(self.latent, 50)
-        self.total_loss = self.loss(self.reconstruct, mu, sigma)
+        self.buildEncoder()
+        self.latent = self.generate_latent(self.mu, self.sigma)
+        self.reconstruct = self.buildDecoder(self.latent)
+        self.loss()
         self.train = tf.train.AdamOptimizer(learning_rate=self.learning_rate)\
             .minimize(self.total_loss)
 
@@ -31,15 +37,16 @@ class VariationalAutoEncoder(object):
 
     # Build encoder
     # Returns (mu, sigma)
-    def buildEncoder(self, hidden_dim):
-        W1 = weight_variable("we1", [self.dim_image, hidden_dim])
-        b1 = bias_variable("be1", [hidden_dim])
+    def buildEncoder(self):
+        W1 = weight_variable("we1", [self.dim_image, self.hidden_dim])
+        b1 = bias_variable("be1", [self.hidden_dim])
         h = tf.nn.tanh(tf.matmul(self.x, W1) + b1)
-        W2 = weight_variable("we2", [hidden_dim, 2 * self.latent_dim])
+        W2 = weight_variable("we2", [self.hidden_dim, 2 * self.latent_dim])
         b2 = bias_variable("be2", [2 * self.latent_dim])
-        z = tf.nn.sigmoid(tf.matmul(h, W2) + b2)
+        z = tf.matmul(h, W2) + b2
         print ("latent shape", z.get_shape())
-        return z[:, :self.latent_dim], z[:, self.latent_dim:]
+        self.mu = z[:, :self.latent_dim]
+        self.sigma = tf.exp(z[:, self.latent_dim:])
 
     def generate_latent(self, mu, sigma):
         print("Mu and sigma shape", mu.get_shape(), sigma.get_shape())
@@ -48,26 +55,35 @@ class VariationalAutoEncoder(object):
 
     # Build decoder
     # Returns the decoded vector y from mu and sigma
-    def buildDecoder(self, latent, hidden_dim):
-        W1 = weight_variable("wd1", [self.latent_dim, hidden_dim])
-        b1 = bias_variable("bd1", [hidden_dim])
+    def buildDecoder(self, latent):
+        W1 = weight_variable("wd1", [self.latent_dim, self.hidden_dim])
+        b1 = bias_variable("bd1", [self.hidden_dim])
         reconstruct = tf.nn.tanh(tf.matmul(latent, W1) + b1)
-        W2 = weight_variable("wd2", [hidden_dim, self.dim_image])
+        W2 = weight_variable("wd2", [self.hidden_dim, self.dim_image])
         b2 = bias_variable("bd2", [self.dim_image])
         reconstruct = tf.nn.sigmoid(tf.matmul(reconstruct, W2) + b2)
         return reconstruct
 
     # Given initial data, reconstructed data and parameters, compute the loss.
-    def loss(self, reconstruct, mu, sigma):
-        likelihood = tf.reduce_sum(\
-            self.x * tf.log(reconstruct) + (1 - self.x) * tf.log(1 - reconstruct), 1)
-        kldiv = 0.5 * tf.reduce_sum(\
-            tf.square(mu) + tf.square(sigma) - tf.log(1e-8 + tf.square(sigma)) - 1, 1)
-        return tf.reduce_mean(kldiv) - tf.reduce_mean(likelihood)
+    def loss(self):
+        self.likelihood = -tf.reduce_mean(tf.reduce_sum(
+            self.x * tf.log(self.reconstruct) +
+            (1 - self.x) * tf.log(1 - self.reconstruct), 1))
+        self.kldiv = tf.reduce_mean(0.5 * tf.reduce_sum(
+            tf.square(self.mu) + tf.square(self.sigma) -
+            tf.log(1e-8 + tf.square(self.sigma)) - 1, 1))
+        self.total_loss = self.kldiv + self.likelihood
 
     def train_step(self, x):
-        _, loss, reconstruct = self.sess.run([self.train, self.total_loss, self.reconstruct], feed_dict={self.x: x})
-        return loss, reconstruct
+        _, total_loss, likelihood, kldiv = \
+            self.sess.run([self.train, self.total_loss, self.likelihood, self.kldiv], feed_dict={self.x: x})
+        return total_loss, likelihood, kldiv
+
+    def get_reconstruct(self, x):
+        reconstructed = self.sess.run(
+            self.reconstruct, feed_dict={self.x:x}
+        )
+        return reconstructed
 
     def generate(self, z):
         bernoulli = tf.distributions.Bernoulli(probs=self.reconstruct).sample(1)
