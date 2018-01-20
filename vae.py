@@ -41,7 +41,6 @@ class VariationalAutoEncoder(object):
             print("Restored model")
 
     # Build encoder
-    # Returns (mu, sigma)
     def buildEncoder(self):
         W1 = weight_variable("we1", [self.dim_image, self.hidden_dim])
         b1 = bias_variable("be1", [self.hidden_dim])
@@ -53,13 +52,13 @@ class VariationalAutoEncoder(object):
         self.mu = z[:, :self.latent_dim]
         self.sigma = tf.exp(z[:, self.latent_dim:])
 
+    # Generate a latent variable sampled from gaussian distritbution
     def generate_latent(self):
-        print("Mu and sigma shape", self.mu.get_shape(), self.sigma.get_shape())
-        latent =  self.mu + self.sigma * tf.random_normal(tf.shape(self.mu), 0, 1, dtype=tf.float32)
+        latent = self.mu + self.sigma * tf.random_normal(
+            tf.shape(self.mu), 0, 1, dtype=tf.float32)
         return latent
 
-    # Build decoder
-    # Returns the decoded vector y from mu and sigma
+    # Decodes a latent variable and returns the reconstructed image.
     def buildDecoder(self, latent):
         W1 = weight_variable("wd1", [self.latent_dim, self.hidden_dim])
         b1 = bias_variable("bd1", [self.hidden_dim])
@@ -81,26 +80,42 @@ class VariationalAutoEncoder(object):
 
     def train_step(self, x):
         _, total_loss, likelihood, kldiv = \
-            self.sess.run([self.train, self.total_loss, self.likelihood, self.kldiv], feed_dict={self.x: x})
+            self.sess.run(
+                [self.train, self.total_loss, self.likelihood, self.kldiv],
+                feed_dict={self.x: x})
         return total_loss, likelihood, kldiv
 
     def train_model(self, data, num_epochs=50, batch_size=100):
-        if self.saved_path is  None:
+        if self.saved_path is None:
             num_sample = data.num_examples
             for epoch in range(num_epochs):
                 for iter in range(num_sample // batch_size):
                     batch = data.next_batch(batch_size)[0]
                     losses = self.train_step(batch)
-                print('[Epoch {}] Loss: {}'.format(epoch, losses))
-            self.saved_path = self.saver.save(self.sess, './model')
+                if epoch % 5 == 0:
+                    print('[Epoch {}] Loss: {}'.format(epoch, losses))
+
+            # Save trained model
+            self.saved_path = self.saver.save(
+                self.sess, './trained_model/model_hd{}_ld{}_e{}'.format(
+                    self.hidden_dim, self.latent_dim, num_epochs))
             print("Model saved in file: %s" % self.saved_path)
 
+    # From an input x, get the reconstructed image.
     def get_reconstruct(self, x):
         reconstructed = self.sess.run(
-            self.reconstruct, feed_dict={self.x:x}
+            self.reconstruct, feed_dict={self.x: x}
         )
         return reconstructed
 
+    def get_encoded(self, x):
+        encoded = self.sess.run(self.latent, feed_dict={self.x:x})
+        return encoded
+
+    # Generate N images by sampling latent variables from normal distribution.
     def get_generated(self, N):
-        random_latent = np.random.normal(loc=0, scale=1, size=[N, self.latent_dim])
-        return self.sess.run(self.reconstruct, feed_dict={self.latent:random_latent})
+        random_latent = \
+            np.random.normal(loc=0, scale=1, size=[N, self.latent_dim])
+        return self.sess.run(
+            self.reconstruct,
+            feed_dict={self.latent:random_latent})

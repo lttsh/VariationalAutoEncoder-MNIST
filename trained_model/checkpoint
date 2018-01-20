@@ -1,0 +1,2 @@
+model_checkpoint_path: "model_hd500_ld5_e50"
+all_model_checkpoint_paths: "model_hd500_ld5_e50"
